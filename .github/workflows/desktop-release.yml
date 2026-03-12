@@ -1,0 +1,84 @@
+name: desktop-release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-desktop:
+    name: build-${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: windows
+            os: windows-latest
+            bundle_glob: desktop/src-tauri/target/release/bundle/msi/*.msi
+          - name: macos
+            os: macos-latest
+            bundle_glob: |
+              desktop/src-tauri/target/release/bundle/dmg/*.dmg
+              desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+          - name: linux
+            os: ubuntu-22.04
+            bundle_glob: |
+              desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+              desktop/src-tauri/target/release/bundle/deb/*.deb
+              desktop/src-tauri/target/release/bundle/rpm/*.rpm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux system dependencies
+        if: matrix.platform.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            file \
+            libfuse2 \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm
+
+      - name: Install desktop dependencies
+        run: npm install
+        working-directory: desktop
+
+      - name: Build desktop bundle
+        run: npm run tauri:build
+        working-directory: desktop
+
+      - name: Upload bundle artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dmanager-${{ matrix.platform.name }}
+          path: ${{ matrix.platform.bundle_glob }}
+          if-no-files-found: error
